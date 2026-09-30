@@ -2,11 +2,11 @@
 import os
 import unittest
 from unittest.mock import patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 
-from app.main import app, pool
+from app.main import app, current_user, pool
 from test_core import example
 
 
@@ -73,6 +73,10 @@ class ApiChecks(unittest.TestCase):
         self.client.patch("/v1/users/me", json={"improvement_opt_in": False}, headers=self.headers)
         detail = self.client.get(f"/v1/analyses/{analysis['analysis_id']}", headers=self.headers).json()
         self.assertFalse(detail["feedback"][0]["consented"])
+        stale_user = lambda: {"id": UUID(self.session["user_id"]), "improvement_opt_in": True}
+        with patch.dict(app.dependency_overrides, {current_user: stale_user}):
+            saved = self.client.put(path, json={"rating": "helpful"}, headers=self.headers).json()
+        self.assertFalse(saved["consented"])
         self.assertEqual(len(self.client.get("/v1/users/me/export", headers=self.headers).json()["analyses"]), 1)
         self.assertEqual(self.client.delete("/v1/users/me/data", headers=self.headers).status_code, 204)
         self.assertEqual(self.client.get("/v1/analyses", headers=self.headers).status_code, 401)

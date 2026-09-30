@@ -185,6 +185,10 @@ def feedback(analysis_id: UUID, body: FeedbackRequest, user=Depends(current_user
     if body.action_id not in {"overview", *(a["id"] for a in analysis["actions"])}:
         raise HTTPException(422, "This action does not belong to the analysis.")
     with pool.connection() as conn:
+        # Serialize with preference changes so an in-flight request cannot undo opt-out.
+        preference = conn.execute("SELECT improvement_opt_in FROM users WHERE id = %s FOR UPDATE", (user["id"],)).fetchone()
+        if not preference:
+            raise HTTPException(401, "Session deleted.")
         row = conn.execute("""INSERT INTO feedback (id, analysis_id, action_id, rating, action_status, comment, consented)
             VALUES (%s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (analysis_id, action_id) DO UPDATE SET
@@ -192,7 +196,7 @@ def feedback(analysis_id: UUID, body: FeedbackRequest, user=Depends(current_user
                 action_status = COALESCE(EXCLUDED.action_status, feedback.action_status),
                 comment = COALESCE(%s, feedback.comment), consented = EXCLUDED.consented, updated_at = now()
             RETURNING action_id, rating, action_status, comment, consented""",
-            (uuid4(), analysis_id, body.action_id, body.rating, body.action_status, body.comment or "", user["improvement_opt_in"], body.comment)).fetchone()
+            (uuid4(), analysis_id, body.action_id, body.rating, body.action_status, body.comment or "", preference["improvement_opt_in"], body.comment)).fetchone()
     return row
 
 
