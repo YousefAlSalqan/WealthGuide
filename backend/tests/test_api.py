@@ -7,7 +7,9 @@ from uuid import UUID, uuid4
 from fastapi.testclient import TestClient
 
 from app.main import app, current_user, pool
+from app import chat
 from test_core import example
+from test_chat import complete_draft
 
 
 @unittest.skipUnless(os.getenv("RUN_DB_TESTS") == "1", "Set RUN_DB_TESTS=1 with PostgreSQL running")
@@ -98,6 +100,65 @@ class ApiChecks(unittest.TestCase):
         self.assertEqual(result.status_code, 200)
         self.assertFalse(result.json()["saved"])
         self.assertEqual(self.client.get("/v1/analyses", headers=self.headers).json()["items"], [])
+
+    def test_chat_retry_review_and_export(self):
+        body = {"request_id": str(uuid4()), "message": "Here are my fictional monthly details."}
+        result = chat.fallback(complete_draft(), "generated")
+        result["answer"] = "Review your captured numbers before creating a plan."
+        with patch("app.chat.respond", return_value=result) as provider:
+            first = self.client.post("/v1/chat", json=body, headers=self.headers)
+            self.assertEqual(first.status_code, 201, first.text)
+            again = self.client.post("/v1/chat", json=body, headers=self.headers)
+            self.assertEqual(again.status_code, 200)
+            self.assertEqual(again.json(), first.json())
+            self.assertEqual(provider.call_count, 1)
+        self.assertEqual(self.client.get("/v1/analyses", headers=self.headers).json()["items"], [])
+        turns = self.client.get("/v1/chat", headers=self.headers).json()["items"]
+        self.assertEqual(len(turns), 1)
+        self.assertEqual(turns[0]["snapshot"]["monthly_income"], "4200")
+        exported = self.client.get("/v1/users/me/export", headers=self.headers).json()
+        self.assertEqual(exported["chat_turns"][0]["id"], first.json()["id"])
+        body["message"] = "Changed request"
+        self.assertEqual(self.client.post("/v1/chat", json=body, headers=self.headers).status_code, 409)
+        self.client.delete("/v1/users/me/data", headers=self.headers)
+        with pool.connection() as conn:
+            self.assertEqual(conn.execute("SELECT count(*) AS n FROM chat_turns WHERE user_id = %s", (self.session["user_id"],)).fetchone()["n"], 0)
+
+    def test_chat_ownership_and_immutable_plan(self):
+        analysis = self.submit()
+        body = {"request_id": str(uuid4()), "message": "Why is this my first step?", "analysis_id": analysis["analysis_id"]}
+        with patch("app.chat.respond", return_value=chat.fallback(chat.Draft())) as provider:
+            turn = self.client.post("/v1/chat", json=body, headers=self.headers).json()
+        self.assertEqual(str(provider.call_args.args[3]["analysis_id"]), analysis["analysis_id"])
+        self.assertEqual(self.client.get(f"/v1/analyses/{analysis['analysis_id']}", headers=self.headers).json(), analysis)
+        other = self.client.post("/v1/sessions").json()
+        headers = {"Authorization": f"Bearer {other['token']}"}
+        try:
+            self.assertEqual(self.client.get(f"/v1/chat/{turn['id']}", headers=headers).status_code, 404)
+            self.assertEqual(self.client.get("/v1/chat", headers=headers).json()["items"], [])
+            self.assertEqual(self.client.post("/v1/chat", json=body, headers=headers).status_code, 404)
+            self.assertEqual(self.client.post("/v1/chat", json=body).status_code, 401)
+            invalid = {"request_id": str(uuid4()), "message": "x" * 2001}
+            self.assertEqual(self.client.post("/v1/chat", json=invalid, headers=self.headers).status_code, 422)
+        finally:
+            self.client.delete("/v1/users/me/data", headers=headers)
+
+    def test_chat_pending_recovery_and_rate_limit(self):
+        body = {"request_id": str(uuid4()), "message": "Help me start."}
+        first = self.client.post("/v1/chat", json=body, headers=self.headers).json()
+        with pool.connection() as conn:
+            conn.execute("UPDATE chat_turns SET status = 'processing' WHERE id = %s", (first["id"],))
+        with patch("app.chat.respond", side_effect=AssertionError("Unexpected paid retry")):
+            self.assertEqual(self.client.post("/v1/chat", json=body, headers=self.headers).status_code, 202)
+            self.assertEqual(self.client.post("/v1/chat", json={**body, "request_id": str(uuid4())}, headers=self.headers).status_code, 409)
+            with pool.connection() as conn:
+                conn.execute("UPDATE chat_turns SET created_at = now() - interval '2 minutes' WHERE id = %s", (first["id"],))
+            recovered = self.client.get(f"/v1/chat/{first['id']}", headers=self.headers).json()
+            self.assertEqual(recovered["status"], "complete")
+            self.assertEqual(recovered["ai_status"], "fallback")
+        for _ in range(6):
+            self.assertEqual(self.client.post("/v1/chat", json={**body, "request_id": str(uuid4())}, headers=self.headers).status_code, 201)
+        self.assertEqual(self.client.post("/v1/chat", json={**body, "request_id": str(uuid4())}, headers=self.headers).status_code, 429)
 
 
 if __name__ == "__main__":

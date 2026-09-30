@@ -16,9 +16,9 @@ from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from . import ai, settings
+from . import ai, chat, settings
 from .engine import SOURCES, build_plan
-from .models import AnalysisRequest, FeedbackRequest, Preferences, Snapshot
+from .models import AnalysisRequest, ChatRequest, FeedbackRequest, Preferences, Snapshot
 
 pool = ConnectionPool(settings.DATABASE_URL, min_size=1, max_size=5, open=False, kwargs={"row_factory": dict_row})
 bearer = HTTPBearer(auto_error=False)
@@ -34,7 +34,7 @@ async def lifespan(app):
     pool.close()
 
 
-app = FastAPI(title="WealthGuide API", version="1.0.0", lifespan=lifespan,
+app = FastAPI(title="WealthGuide API", version="1.1.0", lifespan=lifespan,
               description="Local educational demo. Start a session, POST a snapshot, and receive a saved plan with an AI explanation.")
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "api", "testserver"])
 
@@ -209,7 +209,9 @@ def guidance():
 def export_data(user=Depends(current_user)):
     with pool.connection() as conn:
         rows = conn.execute("SELECT a.id FROM analyses a JOIN financial_snapshots s ON s.id = a.snapshot_id WHERE s.user_id = %s ORDER BY a.created_at", (user["id"],)).fetchall()
-    return JSONResponse(jsonable_encoder({"user_id": user["id"], "analyses": [owned_analysis(r["id"], user["id"]) for r in rows]}), headers={"Content-Disposition": 'attachment; filename="wealthguide-export.json"'})
+        turns = conn.execute("SELECT * FROM chat_turns WHERE user_id = %s ORDER BY created_at, id", (user["id"],)).fetchall()
+    return JSONResponse(jsonable_encoder({"user_id": user["id"], "analyses": [owned_analysis(r["id"], user["id"]) for r in rows],
+                                         "chat_turns": [public_chat(t) for t in turns]}), headers={"Content-Disposition": 'attachment; filename="wealthguide-export.json"'})
 
 
 @app.delete("/v1/users/me/data", status_code=204)
@@ -217,3 +219,62 @@ def delete_data(user=Depends(current_user)):
     with pool.connection() as conn:
         conn.execute("DELETE FROM users WHERE id = %s", (user["id"],))
     return Response(status_code=204)
+
+
+def public_chat(row):
+    return {k: row[k] for k in ("id", "request_id", "message", "analysis_id", "status", "created_at")} | row["result"]
+
+
+def recover_chat(conn, user_id):
+    conn.execute("""UPDATE chat_turns SET status = 'complete',
+        result = jsonb_set(jsonb_set(result, '{ai_status}', '"fallback"'), '{answer}', to_jsonb(%s::text))
+        WHERE user_id = %s AND status = 'processing' AND created_at < now() - interval '90 seconds'""",
+        ("This reply was interrupted. Your earlier draft is safe. Send a new message or use the snapshot form.", user_id))
+
+
+@app.get("/v1/chat")
+def chat_history(user=Depends(current_user)):
+    with pool.connection() as conn:
+        recover_chat(conn, user["id"])
+        rows = conn.execute("SELECT * FROM chat_turns WHERE user_id = %s ORDER BY created_at DESC, id DESC LIMIT 21", (user["id"],)).fetchall()
+    return {"items": [public_chat(r) for r in reversed(rows[:20])], "has_more": len(rows) > 20}
+
+
+@app.get("/v1/chat/{turn_id}")
+def chat_detail(turn_id: UUID, user=Depends(current_user)):
+    with pool.connection() as conn:
+        recover_chat(conn, user["id"])
+        row = conn.execute("SELECT * FROM chat_turns WHERE id = %s AND user_id = %s", (turn_id, user["id"])).fetchone()
+    if not row:
+        raise HTTPException(404, "Chat message not found.")
+    return public_chat(row)
+
+
+@app.post("/v1/chat", status_code=201)
+def chat_message(body: ChatRequest, response: Response, user=Depends(current_user)):
+    plan = owned_analysis(body.analysis_id, user["id"]) if body.analysis_id else None
+    turn_id = uuid4()
+    with pool.connection() as conn:
+        if not conn.execute("SELECT id FROM users WHERE id = %s FOR UPDATE", (user["id"],)).fetchone():
+            raise HTTPException(401, "Session deleted.")
+        recover_chat(conn, user["id"])
+        old = conn.execute("SELECT * FROM chat_turns WHERE user_id = %s AND request_id = %s", (user["id"], body.request_id)).fetchone()
+        if old:
+            if old["message"] != body.message or old["analysis_id"] != body.analysis_id:
+                raise HTTPException(409, "This request ID belongs to a different chat message.")
+            response.status_code = 202 if old["status"] == "processing" else 200
+            return public_chat(old)
+        if conn.execute("SELECT id FROM chat_turns WHERE user_id = %s AND status = 'processing'", (user["id"],)).fetchone():
+            raise HTTPException(409, "A reply is still being prepared. Wait for it before sending another message.")
+        recent = conn.execute("SELECT count(*) AS n FROM chat_turns WHERE user_id = %s AND created_at > now() - interval '1 minute'", (user["id"],)).fetchone()["n"]
+        if recent >= 6:
+            raise HTTPException(429, "Please wait a minute before sending another chat message.")
+        history = list(reversed(conn.execute("SELECT * FROM chat_turns WHERE user_id = %s ORDER BY created_at DESC, id DESC LIMIT 6", (user["id"],)).fetchall()))
+        previous = chat.Draft.model_validate(history[-1]["result"]["draft"]) if history else chat.Draft()
+        conn.execute("""INSERT INTO chat_turns (id, user_id, request_id, message, analysis_id, result, status)
+            VALUES (%s, %s, %s, %s, %s, %s, 'processing')""",
+            (turn_id, user["id"], body.request_id, body.message, body.analysis_id, Jsonb(chat.fallback(previous, "pending"))))
+    result = chat.respond(body.message, previous, history, plan)
+    with pool.connection() as conn:
+        conn.execute("UPDATE chat_turns SET result = %s, status = 'complete' WHERE id = %s AND status = 'processing'", (Jsonb(result), turn_id))
+    return chat_detail(turn_id, user)

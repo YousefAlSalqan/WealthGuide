@@ -44,27 +44,28 @@ def fallback(plan: dict) -> dict:
     }
 
 
+def checked_text(text: str, replacements: dict, limit: int) -> str:
+    if not text.strip() or len(text) > limit:
+        raise ValueError("Invalid explanation length")
+    tokens = set(re.findall(r"\{[^{}]*\}", text))
+    if tokens - replacements.keys():
+        raise ValueError("Unknown calculated value")
+    clean = re.sub(r"\{[^{}]*\}", "", text)
+    if re.search(r"[\d$%{}]|https?://|guaranteed|risk.free|buy stock|crypto", clean, re.I):
+        raise ValueError("Unapproved number or claim")
+    for token, value in replacements.items():
+        text = text.replace(token, f"${value}")
+    return text
+
+
 def validate_explanation(explanation: Explanation, plan: dict) -> dict:
     if [a.action_id for a in explanation.actions] != [a["id"] for a in plan["actions"]]:
         raise ValueError("Action identity or order mismatch")
 
-    def checked(text, replacements, limit):
-        if not text.strip() or len(text) > limit:
-            raise ValueError("Invalid explanation length")
-        tokens = set(re.findall(r"\{[^{}]*\}", text))
-        if tokens - replacements.keys():
-            raise ValueError("Unknown calculated value")
-        clean = re.sub(r"\{[^{}]*\}", "", text)
-        if re.search(r"[\d$%{}]|https?://|guaranteed|risk.free|buy stock|crypto", clean, re.I):
-            raise ValueError("Unapproved number or claim")
-        for token, value in replacements.items():
-            text = text.replace(token, f"${value}")
-        return text
-
     return {
-        "headline": checked(explanation.headline, {}, 120),
-        "summary": checked(explanation.summary, {"{monthly_surplus}": plan["metrics"]["monthly_surplus"], "{emergency_gap}": plan["metrics"]["emergency_gap"]}, 700),
-        "actions": [{"action_id": a.action_id, "explanation": checked(a.explanation, {"{action_amount}": p["amount"]}, 500)} for a, p in zip(explanation.actions, plan["actions"])],
+        "headline": checked_text(explanation.headline, {}, 120),
+        "summary": checked_text(explanation.summary, {"{monthly_surplus}": plan["metrics"]["monthly_surplus"], "{emergency_gap}": plan["metrics"]["emergency_gap"]}, 700),
+        "actions": [{"action_id": a.action_id, "explanation": checked_text(a.explanation, {"{action_amount}": p["amount"]}, 500)} for a, p in zip(explanation.actions, plan["actions"])],
     }
 
 

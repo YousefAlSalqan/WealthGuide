@@ -85,3 +85,9 @@ class FeedbackRequest(StrictModel):
 
 class Preferences(StrictModel):
     improvement_opt_in: bool
+
+
+class ChatRequest(StrictModel):
+    request_id: UUID
+    message: str = Field(min_length=1, max_length=2000)
+    analysis_id: UUID | None = None

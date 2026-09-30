@@ -37,3 +37,16 @@ CREATE TABLE IF NOT EXISTS feedback (
     UNIQUE(analysis_id, action_id)
 );
 CREATE INDEX IF NOT EXISTS snapshots_user_history ON financial_snapshots(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS chat_turns (
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    request_id UUID NOT NULL,
+    message TEXT NOT NULL CHECK (char_length(message) BETWEEN 1 AND 2000),
+    analysis_id UUID REFERENCES analyses(id) ON DELETE SET NULL,
+    result JSONB NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('processing', 'complete')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(user_id, request_id)
+);
+CREATE INDEX IF NOT EXISTS chat_user_history ON chat_turns(user_id, created_at DESC);
