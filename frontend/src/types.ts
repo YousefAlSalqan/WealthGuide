@@ -21,3 +21,14 @@ export type Analysis = Plan & {
 }
 export type HistoryItem = Pick<Analysis, 'analysis_id' | 'created_at' | 'status' | 'ai_status' | 'metrics'> & { as_of: string; top_action: string }
 export type Session = { user_id: string; token: string; improvement_opt_in: boolean }
+export type ChatDraft = {
+  cash_balance: string | null; monthly_income: string | null; essential_expenses: string | null;
+  discretionary_expenses: string | null; emergency_fund: string | null;
+  debts: { name: string; balance: string | null; apr: string | null; minimum_payment: string | null }[] | null;
+}
+export type ChatTurn = {
+  id: string; request_id: string; message: string; analysis_id: string | null; created_at: string;
+  status: 'processing' | 'complete'; answer: string; draft: ChatDraft; missing_fields: string[];
+  review_issues: string[]; snapshot: Snapshot | null; sources: Source[];
+  ai_status: 'pending' | 'generated' | 'template' | 'fallback'; model_version: string | null; prompt_version: string;
+}

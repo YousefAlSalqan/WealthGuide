@@ -3,6 +3,7 @@ import unittest
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import patch
+from pydantic import ValidationError
 
 from app import chat
 from app.engine import build_plan
@@ -15,6 +16,15 @@ def complete_draft():
 
 
 class ChatChecks(unittest.TestCase):
+    def test_provider_decimal_schema_is_simple_but_validation_stays_strict(self):
+        field = chat.Draft.model_json_schema()["properties"]["monthly_income"]
+        self.assertEqual(field["anyOf"], [{"type": "string"}, {"type": "null"}])
+        for invalid in ("-1", "1.234", "100000001", "NaN", "Infinity"):
+            with self.assertRaises(ValidationError):
+                chat.Draft(monthly_income=invalid)
+        with self.assertRaises(ValidationError):
+            chat.DraftDebt(name="Card", apr="1001")
+
     def test_missing_is_not_zero_and_ready_requires_consistent_snapshot(self):
         partial = chat.draft_review(chat.Draft(monthly_income="4200"))
         self.assertIsNone(partial["snapshot"])

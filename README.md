@@ -2,7 +2,7 @@
 
 A financial snapshot in. A clear next step out.
 
-WealthGuide turns a financial snapshot into an explainable monthly plan. Python calculates the amounts; OpenAI explains the result. PostgreSQL keeps snapshots, versioned analyses, and user feedback together.
+WealthGuide turns a financial snapshot into an explainable monthly plan. Start with a form or a conversation, then ask questions about a saved plan. Python calculates the amounts; OpenAI gathers draft details and explains results. PostgreSQL keeps snapshots, versioned analyses, chats and user feedback together.
 
 ## Run it
 
@@ -16,7 +16,7 @@ Copy-Item .env.example .env
 docker compose up --build -d
 ```
 
-Open [the app](http://localhost:3000) or [interactive API docs](http://localhost:8000/docs). Select **Create my plan** using the fictional sample. Without an API key, calculations still work with a labeled standard explanation. Provider errors, timeouts and rejected model output also fall back to a standard explanation.
+Open [the app](http://localhost:3000) or [interactive API docs](http://localhost:8000/docs). New sessions open **Chat with your guide**. Describe a synthetic monthly budget, review the captured snapshot, then select **Create my plan** in the editable form. Or open **Financial snapshot** directly to try the fictional sample. Use **Ask about this plan** to attach a saved plan to chat. Without an API key, the form and calculations still work with a labeled standard explanation; chat preserves its draft and offers the form. Provider errors, timeouts and rejected output use the same fallback.
 
 This is an independent educational portfolio project, not affiliated with JPMorganChase or a financial adviser. Use **synthetic data on localhost**, not real financial information.
 
@@ -34,9 +34,11 @@ PostgreSQL's named volume survives restarts, rebuilds and `docker compose down`.
 ## Included
 
 - Responsive snapshot form, prioritized plan with visible math, saved history and curated learning links.
+- Conversational snapshot intake with explicit review, plus questions about an attached, unchanged saved plan.
+- Persistent chat and partial drafts, included in the session's export and deletion controls.
 - Exact decimal calculations for monthly surplus, reserves, high-interest debt, savings goals and confirmed employer-match estimates.
 - Unsaved spending scenarios with no extra AI call.
-- One bounded, structured OpenAI Responses call per new analysis with checked number placeholders.
+- One bounded, structured OpenAI Responses call per new analysis or chat turn with checked number placeholders.
 - Action progress, ratings and notes, default-off improvement consent, export and deletion.
 - Capability-token ownership checks, idempotent requests, input validation, local-only ports and per-session analysis throttling.
 
@@ -52,7 +54,9 @@ React form → POST /api/v1/analyses → FastAPI validates snapshot
                               PostgreSQL → response → UI
 ```
 
-**PostgreSQL:** users, snapshots, analyses and feedback have real relationships. Foreign keys, transactions, uniqueness and cascading deletion enforce them. JSONB preserves versioned snapshots and plans. This choice is about consistency and JSON support, not a claim that SQL only scales vertically.
+Chat uses `POST /v1/chat` to persist a message and return an answer plus a draft. Only reviewing and submitting that draft through the form invokes the plan flow above. Plan questions read owned saved calculations; they cannot update an existing plan.
+
+**PostgreSQL:** users, snapshots, analyses, feedback and chat turns have real relationships. Foreign keys, transactions, uniqueness and cascading deletion enforce them. JSONB preserves versioned snapshots, plans and chat results. The additive `chat_turns` table is created on startup without replacing existing tables. This choice is about consistency and JSON support, not a claim that SQL only scales vertically.
 
 **Docker:** one repeatable setup for the API, PostgreSQL and web server, without a host PostgreSQL/Python installation. Docker itself is not encryption or a complete production-security solution.
 
@@ -68,7 +72,7 @@ See [API contract](docs/API.md), [calculation rules](docs/CALCULATIONS.md), and 
 | --- | --- | --- |
 | `OPENAI_API_KEY` | empty | Server-only credential; separate API billing required |
 | `OPENAI_API_KEY_FILE` | optional | Local key file instead of a dotenv key value |
-| `OPENAI_MODEL` | `gpt-4.1-mini` | Structured-output explanation model |
+| `OPENAI_MODEL` | `gpt-4.1-mini` | Structured-output explanation and chat model |
 | `AI_ENABLED` | `true` | Set `false` to avoid provider calls |
 | `POSTGRES_PASSWORD` | `wealthguide-local-only` | Local demo password, not a production secret |
 | `DATABASE_URL` | PostgreSQL on localhost:5433 | Host-based backend development only |
@@ -88,11 +92,13 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-Backend checks cover allocation invariants across 150 generated snapshots, rounding, reserves, goal accounting, match costs, ownership, retries, interrupted calls, consent, feedback, export and deletion. Browser checks cover the full desktop/mobile journey and save screenshots in ignored `frontend/test-results/`.
+Backend checks cover allocation invariants across 150 generated snapshots, rounding, reserves, goal accounting, match costs, ownership, retries, interrupted calls, consent, feedback, export, deletion and chat draft validation. Browser checks cover the desktop/mobile form and chat journeys and save screenshots in ignored `frontend/test-results/`. The draft-handoff browser check uses a clearly labeled AI fixture; live model checks are separate.
 
-Browser tests use the running server's AI setting, creating one synthetic plan per layout. To avoid paid calls, set `AI_ENABLED=false` in `.env` and run `docker compose up -d api` before testing. Restore `true` and recreate the API afterwards. GitHub Actions runs with AI disabled and no credentials.
+Browser tests use the running server's AI setting, creating one synthetic plan and one chat turn per layout. To avoid paid calls, set `AI_ENABLED=false` in `.env` and run `docker compose up -d api` before testing. Restore `true` and recreate the API afterwards. GitHub Actions runs with AI disabled and no credentials.
 
 For an explicit live AI diagnostic, run `docker compose run --rm api python check_ai.py --live`. This makes one potentially billable synthetic request and prints only status/error codes, never keys or financial payloads. HTTP 429 means the provider rejected the request; check the API project's usage/limits and billing. A ChatGPT subscription alone does not fund API calls.
+
+To check both real chat intake and a plan question, use `docker compose run --rm api python check_ai.py --live --chat`. This makes up to two billable synthetic chat requests and checks draft extraction and a trusted surplus placeholder; it saves no database records.
 
 For UI development, leave Docker's API/database running and use `npm run dev` in `frontend`; open `http://localhost:5173`. Vite proxies `/api` to the backend. After source edits, `docker compose up --build -d` updates the packaged app.
 

@@ -48,6 +48,31 @@ Each action has an ID, priority, title, decimal amount, period, kind, rationale,
 
 Optional goal: `name`, `target_amount`, `saved_amount`, `target_date`. Optional employer match: `additional_take_home_cost`, `additional_employer_match`, both confirmed monthly amounts. The app does not infer tax effects or eligibility.
 
+## Chat intake and plan questions
+
+`POST /v1/chat` uses the same session bearer token:
+
+```json
+{
+  "request_id": "44444444-4444-4444-8444-444444444444",
+  "message": "My monthly take-home income is 4200 USD. What else do you need?",
+  "analysis_id": null
+}
+```
+
+The message is limited to 2,000 characters. Set `analysis_id` to an owned saved plan's ID to include its calculated context; another session's plan returns `404`. Conversation history is loaded by the server, not accepted from the client. There is one conversation per demo session.
+
+The response includes `id`, `request_id`, `message`, `analysis_id`, `created_at`, `status`, `answer`, `ai_status`, `model_version`, `prompt_version`, approved `sources`, `draft`, `missing_fields`, `review_issues`, and `snapshot`. `snapshot` is null until the draft is complete and validates. A draft has cash, monthly take-home income, essential/flexible expenses, emergency savings and debts. Unknown values stay null; an empty debts array means confirmed no debt. New numeric values must also appear in the current message, but this check cannot prove correct interpretation: **review is required**.
+
+Chat never saves an analysis. The client reviews a returned snapshot in the form and submits it through `POST /v1/analyses`. Goals and employer match can be added there; the default reserve target is three months. Asking a plan question cannot modify that plan or recalculate it.
+
+First completed response: `201`. Identical retries reuse the same result (`200`, or `202` while processing); a changed body with the same request ID returns `409`. One in-flight message per session is allowed (`409` for another). Six new messages per minute are allowed (`429` otherwise). Interrupted turns recover after 90 seconds with the previous draft and a labeled fallback, without another provider call. Reuse the request ID after a network error.
+
+- `GET /v1/chat`: latest 20 turns, oldest-to-newest, as `items` and `has_more`. Full history remains available in export.
+- `GET /v1/chat/{id}`: one owned turn; use this to recover a pending reply.
+
+Only the last six turns, current draft, approved summaries and optional attached plan context enter each bounded AI request. The user message and answer, captured draft, optional plan association and model/prompt metadata are stored in `chat_turns`. Session export and cascading deletion include all chat turns.
+
 ## Other endpoints
 
 | Method and route | Behavior |
