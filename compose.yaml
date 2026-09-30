@@ -25,6 +25,7 @@ services:
     environment:
       DATABASE_URL: postgresql://wealthguide:${POSTGRES_PASSWORD:-wealthguide-local-only}@db:5432/wealthguide
       OPENAI_API_KEY_FILE: /run/secrets/openai_key
+      AI_ENABLED: ${AI_ENABLED:-true}
     secrets:
       - openai_key
     ports:

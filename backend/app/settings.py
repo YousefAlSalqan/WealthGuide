@@ -11,6 +11,8 @@ def get_api_key() -> str:
     if os.getenv("OPENAI_API_KEY"):
         return os.environ["OPENAI_API_KEY"].strip()
     key_file = Path(os.getenv("OPENAI_API_KEY_FILE", str(ROOT / ".env.txt")))
+    if not key_file.is_absolute():
+        key_file = ROOT / key_file
     if not key_file.is_file():
         return ""
     content = key_file.read_text(encoding="utf-8-sig").strip()

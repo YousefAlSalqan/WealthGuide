@@ -66,7 +66,9 @@ class ApiChecks(unittest.TestCase):
         analysis = self.submit()
         path = f"/v1/analyses/{analysis['analysis_id']}/feedback"
         self.client.patch("/v1/users/me", json={"improvement_opt_in": True}, headers=self.headers)
-        self.assertTrue(self.client.put(path, json={"rating": "helpful"}, headers=self.headers).json()["consented"])
+        self.assertTrue(self.client.put(path, json={"rating": "helpful", "comment": "Clear explanation"}, headers=self.headers).json()["consented"])
+        updated = self.client.put(path, json={"rating": "not_helpful"}, headers=self.headers).json()
+        self.assertEqual(updated["comment"], "Clear explanation")
         self.assertEqual(self.client.put(path, json={"action_id": "invented", "rating": "helpful"}, headers=self.headers).status_code, 422)
         self.client.patch("/v1/users/me", json={"improvement_opt_in": False}, headers=self.headers)
         detail = self.client.get(f"/v1/analyses/{analysis['analysis_id']}", headers=self.headers).json()

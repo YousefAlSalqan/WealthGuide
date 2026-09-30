@@ -74,7 +74,7 @@ class FeedbackRequest(StrictModel):
     action_id: str = Field(default="overview", min_length=1, max_length=80)
     rating: Literal["helpful", "not_helpful"] | None = None
     action_status: Literal["accepted", "completed", "dismissed"] | None = None
-    comment: str = Field(default="", max_length=500)
+    comment: str | None = Field(default=None, max_length=500)
 
     @model_validator(mode="after")
     def has_feedback(self):

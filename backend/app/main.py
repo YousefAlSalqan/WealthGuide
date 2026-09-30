@@ -190,9 +190,9 @@ def feedback(analysis_id: UUID, body: FeedbackRequest, user=Depends(current_user
             ON CONFLICT (analysis_id, action_id) DO UPDATE SET
                 rating = COALESCE(EXCLUDED.rating, feedback.rating),
                 action_status = COALESCE(EXCLUDED.action_status, feedback.action_status),
-                comment = EXCLUDED.comment, consented = EXCLUDED.consented, updated_at = now()
+                comment = COALESCE(%s, feedback.comment), consented = EXCLUDED.consented, updated_at = now()
             RETURNING action_id, rating, action_status, comment, consented""",
-            (uuid4(), analysis_id, body.action_id, body.rating, body.action_status, body.comment, user["improvement_opt_in"])).fetchone()
+            (uuid4(), analysis_id, body.action_id, body.rating, body.action_status, body.comment or "", user["improvement_opt_in"], body.comment)).fetchone()
     return row
 
 
