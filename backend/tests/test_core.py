@@ -1,9 +1,11 @@
 import random
+import json
 import unittest
 from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
 from uuid import uuid4
+from types import SimpleNamespace
 
 from pydantic import ValidationError
 
@@ -21,6 +23,25 @@ def example(**changes):
 
 
 class FinancialChecks(unittest.TestCase):
+    def test_successful_ai_uses_checked_output_and_minimized_input(self):
+        snapshot = example()
+        plan = build_plan(snapshot)
+        parsed = Explanation(headline="A practical next step", summary="You have {monthly_surplus} to work with.",
+                             actions=[ActionExplanation(action_id=f"action-{i}", explanation="Set aside {action_amount} for this step.")
+                                      for i, _ in enumerate(plan["actions"])])
+        with patch("app.ai.settings.get_api_key", return_value="test-key"), patch("app.ai.settings.AI_ENABLED", True), patch("app.ai.OpenAI") as factory:
+            call = factory.return_value.__enter__.return_value.responses.parse
+            call.return_value = SimpleNamespace(status="completed", output_parsed=parsed, model="test-model")
+            explanation, status, model = explain(plan)
+        self.assertEqual((status, model), ("generated", "test-model"))
+        self.assertIn("$1200.00", explanation["summary"])
+        self.assertEqual(explanation["actions"][0]["action_id"], plan["actions"][0]["id"])
+        self.assertFalse(call.call_args.kwargs["store"])
+        sent = call.call_args.kwargs["input"]
+        self.assertNotIn(str(snapshot.debts[0].id), sent)
+        self.assertNotIn(snapshot.debts[0].name, sent)
+        self.assertEqual(json.loads(sent)["actions"][0]["action_id"], "action-0")
+
     def test_known_example_and_no_double_count(self):
         plan = build_plan(example())
         self.assertEqual(plan["metrics"]["monthly_surplus"], "1200.00")

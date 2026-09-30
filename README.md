@@ -4,13 +4,108 @@ A financial snapshot in. A clear next step out.
 
 WealthGuide turns a financial snapshot into an explainable monthly plan. Python calculates the amounts; OpenAI explains the result. PostgreSQL keeps snapshots, versioned analyses, and user feedback together.
 
-## Build scope
+## Run it
 
-- React + TypeScript interface with snapshot entry, recommendations, history, and feedback.
-- FastAPI JSON API with exact decimal calculations and approved source links.
-- PostgreSQL relational records and JSONB snapshots.
-- One bounded OpenAI Responses call per analysis, with a deterministic fallback.
-- Anonymous browser sessions for synthetic demo data; no bank connections or money movement.
-- Opt-in feedback for future, human-reviewed improvements. No autonomous training.
+Prerequisite: Docker Desktop with Linux containers and Docker Compose v2.24+.
 
-This is an independent educational portfolio project, not a Chase product or a financial adviser. The running demo is local only. Full setup and verification instructions will be added as implementation lands.
+```powershell
+git clone https://github.com/YousefAlSalqan/WealthGuide.git
+cd WealthGuide
+Copy-Item .env.example .env
+# Edit .env: add OPENAI_API_KEY if you want AI explanations.
+docker compose up --build -d
+```
+
+Open [the app](http://localhost:3000) or [interactive API docs](http://localhost:8000/docs). Select **Create my plan** using the fictional sample. Without an API key, calculations still work with a labeled standard explanation. Provider errors, timeouts and rejected model output also fall back to a standard explanation.
+
+This is an independent educational portfolio project, not affiliated with JPMorganChase or a financial adviser. Use **synthetic data on localhost**, not real financial information.
+
+In the original Windows workspace, the supplied `.env.txt` is mounted read-only as a Docker secret, selected by `OPENAI_API_KEY_FILE=.env.txt` in the ignored `.env`. The key file can contain a raw key or `OPENAI_API_KEY=...`. Do not overwrite an existing key file. Keys never enter the frontend, Docker image or Git.
+
+```powershell
+docker compose ps                 # Check service health
+docker compose logs --tail 30 api  # Operational errors, not financial payloads
+docker compose stop               # Stop and keep saved data
+docker compose up -d              # Start again
+```
+
+PostgreSQL's named volume survives restarts, rebuilds and `docker compose down`. Do **not** add `--volumes` unless you intend to destroy all saved records. The Privacy page exports or deletes only your current session's data. Clearing browser storage loses access to the anonymous session; there is no account recovery.
+
+## Included
+
+- Responsive snapshot form, prioritized plan with visible math, saved history and curated learning links.
+- Exact decimal calculations for monthly surplus, reserves, high-interest debt, savings goals and confirmed employer-match estimates.
+- Unsaved spending scenarios with no extra AI call.
+- One bounded, structured OpenAI Responses call per new analysis with checked number placeholders.
+- Action progress, ratings and notes, default-off improvement consent, export and deletion.
+- Capability-token ownership checks, idempotent requests, input validation, local-only ports and per-session analysis throttling.
+
+## Architecture and decisions
+
+```text
+React form → POST /api/v1/analyses → FastAPI validates snapshot
+                                        ↓
+                              Decimal rules → saved plan
+                                        ↓
+                              OpenAI explanation or fallback
+                                        ↓
+                              PostgreSQL → response → UI
+```
+
+**PostgreSQL:** users, snapshots, analyses and feedback have real relationships. Foreign keys, transactions, uniqueness and cascading deletion enforce them. JSONB preserves versioned snapshots and plans. This choice is about consistency and JSON support, not a claim that SQL only scales vertically.
+
+**Docker:** one repeatable setup for the API, PostgreSQL and web server, without a host PostgreSQL/Python installation. Docker itself is not encryption or a complete production-security solution.
+
+**React/TypeScript + FastAPI:** typed UI and a validated, automatically documented API. No vector database, separate orchestration service or training pipeline is needed for the MVP.
+
+**Guidance:** original summaries and links to Chase, CFPB and IRS materials in `backend/app/guidance.json`. No assumed Chase textbook API, live scraping, full-text copying or claim of an optimal financial strategy. Explicit Python code supplies the calculations, not an LLM reading a textbook.
+
+See [API contract](docs/API.md), [calculation rules](docs/CALCULATIONS.md), and [privacy and improvement boundaries](docs/SAFETY.md).
+
+## Configuration
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `OPENAI_API_KEY` | empty | Server-only credential; separate API billing required |
+| `OPENAI_API_KEY_FILE` | optional | Local key file instead of a dotenv key value |
+| `OPENAI_MODEL` | `gpt-4.1-mini` | Structured-output explanation model |
+| `AI_ENABLED` | `true` | Set `false` to avoid provider calls |
+| `POSTGRES_PASSWORD` | `wealthguide-local-only` | Local demo password, not a production secret |
+| `DATABASE_URL` | PostgreSQL on localhost:5433 | Host-based backend development only |
+
+Compose sets its own database hostname. Changing `POSTGRES_PASSWORD` after the database volume is initialized does not change the existing account password; update the account deliberately instead of deleting data. Use a URL-safe password with this demo Compose template.
+
+## Verification
+
+With the stack running:
+
+```powershell
+docker compose run --rm -e RUN_DB_TESTS=1 -e AI_ENABLED=false api python -m unittest discover -s tests -v
+cd frontend
+npm ci
+npm run build
+npx playwright install chromium
+npm run test:e2e
+```
+
+Backend checks cover allocation invariants across 150 generated snapshots, rounding, reserves, goal accounting, match costs, ownership, retries, interrupted calls, consent, feedback, export and deletion. Browser checks cover the full desktop/mobile journey and save screenshots in ignored `frontend/test-results/`.
+
+Browser tests use the running server's AI setting, creating one synthetic plan per layout. To avoid paid calls, set `AI_ENABLED=false` in `.env` and run `docker compose up -d api` before testing. Restore `true` and recreate the API afterwards. GitHub Actions runs with AI disabled and no credentials.
+
+For an explicit live AI diagnostic, run `docker compose run --rm api python check_ai.py --live`. This makes one potentially billable synthetic request and prints only status/error codes, never keys or financial payloads. HTTP 429 means the provider rejected the request; check the API project's usage/limits and billing. A ChatGPT subscription alone does not fund API calls.
+
+For UI development, leave Docker's API/database running and use `npm run dev` in `frontend`; open `http://localhost:5173`. Vite proxies `/api` to the backend. After source edits, `docker compose up --build -d` updates the packaged app.
+
+Before a public commit:
+
+```powershell
+git add <specific-files>
+python scripts/check_secrets.py
+git diff --cached --check
+```
+
+The scanner checks Git's index for environment files and common credential patterns. It is an extra check, not a guarantee of detecting all possible secrets.
+
+## Boundaries
+
+No bank login, automatic transfers, security selection, return prediction or autonomous training. Public source code does **not** mean this localhost demo is ready for public hosting. Add real authentication, HTTPS, global spending/rate controls, retention/backups, migrations and security review before using real financial information.
