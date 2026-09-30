@@ -7,7 +7,7 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   reporter: 'list',
-  use: { baseURL: process.env.BASE_URL || 'http://localhost:3000', screenshot: 'only-on-failure' },
+  use: { baseURL: process.env.BASE_URL || 'http://localhost:3000', screenshot: 'only-on-failure', actionTimeout: 10_000 },
   projects: [
     { name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 1000 } } },
     { name: 'mobile', use: { ...devices['iPhone 13'], defaultBrowserType: 'chromium' } },

@@ -34,6 +34,7 @@ PostgreSQL's named volume survives restarts, rebuilds and `docker compose down`.
 ## Included
 
 - Responsive snapshot form, prioritized plan with visible math, saved history and curated learning links.
+- Compact navigation, a focused chat workspace and light/dark/system appearance, with a self-hosted Geist font. Appearance resets to the system preference on refresh; no new browser data is stored.
 - Conversational snapshot intake with explicit review, plus questions about an attached, unchanged saved plan.
 - Persistent chat and partial drafts, included in the session's export and deletion controls.
 - Exact decimal calculations for monthly surplus, reserves, high-interest debt, savings goals and confirmed employer-match estimates.
@@ -92,7 +93,7 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-Backend checks cover allocation invariants across 150 generated snapshots, rounding, reserves, goal accounting, match costs, ownership, retries, interrupted calls, consent, feedback, export, deletion and chat draft validation. Browser checks cover the desktop/mobile form and chat journeys and save screenshots in ignored `frontend/test-results/`. The draft-handoff browser check uses a clearly labeled AI fixture; live model checks are separate.
+Backend checks cover allocation invariants across 150 generated snapshots, rounding, reserves, goal accounting, match costs, ownership, retries, interrupted calls, consent, feedback, export, deletion and chat draft validation. Six browser checks cover desktop/mobile form and chat journeys, light/dark/system appearance, contrast tokens, keyboard navigation and widths from 320 to 1440 pixels. Screenshots of every view in both themes are saved in ignored `frontend/test-results/`. The draft-handoff browser check uses a clearly labeled AI fixture; live model checks are separate.
 
 Browser tests use the running server's AI setting, creating one synthetic plan and one chat turn per layout. To avoid paid calls, set `AI_ENABLED=false` in `.env` and run `docker compose up -d api` before testing. Restore `true` and recreate the API afterwards. GitHub Actions runs with AI disabled and no credentials.
 
