@@ -34,7 +34,7 @@ PostgreSQL's named volume survives restarts, rebuilds and `docker compose down`.
 ## Included
 
 - Responsive snapshot form, prioritized plan with visible math, saved history and curated learning links.
-- Compact navigation, a focused chat workspace and light/dark/system appearance, with a self-hosted Geist font. Appearance resets to the system preference on refresh; no new browser data is stored.
+- Desktop sidebar navigation, a conversation-first workspace with a quieter snapshot summary, and light/dark/system appearance with a self-hosted Geist font. Smaller screens retain the keyboard-accessible menu. Appearance resets to the system preference on refresh; no new browser data is stored.
 - Conversational snapshot intake with explicit review, plus questions about an attached, unchanged saved plan.
 - Persistent chat and partial drafts, included in the session's export and deletion controls.
 - Exact decimal calculations for monthly surplus, reserves, high-interest debt, savings goals and confirmed employer-match estimates.

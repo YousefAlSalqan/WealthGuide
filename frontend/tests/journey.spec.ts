@@ -154,6 +154,13 @@ test('system appearance, contrast tokens, keyboard navigation and small widths',
   for (const width of [1440, 1280, 1024, 768, 390, 320]) {
     await page.setViewportSize({ width, height: 900 })
     expect(await page.evaluate(() => document.documentElement.scrollWidth), `Overflow at ${width}`).toBeLessThanOrEqual(width)
+    if (width >= 1280) {
+      const rail = await page.locator('.app-header').boundingBox()
+      const workspace = await page.locator('main').boundingBox()
+      expect(rail!.width).toBe(232)
+      expect(workspace!.x).toBeGreaterThanOrEqual(rail!.width)
+      await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible()
+    }
   }
   const menu = page.getByRole('button', { name: 'Open menu', exact: true })
   await menu.click()
